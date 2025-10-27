@@ -3,6 +3,7 @@ import re
 import sys
 import tempfile
 import textwrap
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import gradio as gr
@@ -26,10 +27,12 @@ SYSTEM_PROMPT = textwrap.dedent(
     # code
     ```
 
-    Constraints:
+    Constraints and safety rules:
     - Use only safe libraries available: requests, time, json, os, dotenv, websocket-client (if needed), web3 (placeholder), pandas (optional).
     - Import helpers from local api_helpers: fetch_markets, place_order.
     - Respect a DRY_RUN boolean from env or caller to avoid real trades.
+    - Never use dangerous calls: eval, exec, compile, __import__, subprocess, os.system, shutil.rmtree, fork/daemonize, file writes outside CWD.
+    - Do not read environment variables other than explicitly needed (e.g., DRY_RUN).
     - Add basic error handling and clear prints for logs.
 
     Polymarket APIs quick reference:
@@ -128,6 +131,53 @@ def agent_response(user_input: str, history: List[Tuple[str, str]]) -> Tuple[str
 
 # --- Execution ---
 
+def audit_generated_code(code: str) -> List[str]:
+    """Scan generated code for obviously dangerous patterns.
+
+    Returns a list of issues; empty list means acceptable.
+    """
+    issues: List[str] = []
+    forbidden_patterns = [
+        r"\beval\b",
+        r"\bexec\b",
+        r"\bcompile\b",
+        r"\b__import__\b",
+        r"subprocess\.",
+        r"os\.system\(",
+        r"shutil\.rmtree",
+        r"rm -rf",
+        r"open\(.*?/etc/",
+        r"\/dev\/",
+    ]
+    for pat in forbidden_patterns:
+        if re.search(pat, code):
+            issues.append(f"Forbidden pattern detected: {pat}")
+
+    # Allowlist imports; warn on unknown imports
+    allowed_imports = {
+        "requests",
+        "time",
+        "json",
+        "os",
+        "dotenv",
+        "websocket",
+        "websocket_client",
+        "web3",
+        "pandas",
+        "api_helpers",
+    }
+    for match in re.finditer(r"^\s*import\s+([a-zA-Z0-9_\.]+)", code, flags=re.MULTILINE):
+        module = match.group(1).split(".")[0]
+        if module not in allowed_imports:
+            issues.append(f"Unexpected import: {module}")
+    for match in re.finditer(r"^\s*from\s+([a-zA-Z0-9_\.]+)\s+import\s+", code, flags=re.MULTILINE):
+        module = match.group(1).split(".")[0]
+        if module not in allowed_imports:
+            issues.append(f"Unexpected import: {module}")
+
+    return issues
+
+
 def execute_code(code: str, dry_run: bool = True, timeout_s: int = 30) -> str:
     os.environ["DRY_RUN"] = "1" if dry_run else "0"
     # Ensure local imports work
@@ -158,6 +208,70 @@ def execute_code(code: str, dry_run: bool = True, timeout_s: int = 30) -> str:
             return f"Execution timed out after {timeout_s}s"
 
 
+# Streaming execution support (single-run at a time for simplicity)
+CURRENT_PROCESS_LOCK = threading.Lock()
+CURRENT_PROCESS: Optional[Any] = None
+
+
+def execute_code_streaming(code: str, dry_run: bool = True, timeout_s: int = 300):
+    """Yield incremental logs while executing code in a subprocess."""
+    import subprocess  # local import to avoid at module import time
+
+    # Audit code first
+    issues = audit_generated_code(code)
+    if issues:
+        yield "\n".join(["Execution blocked due to code audit issues:"] + [f"- {i}" for i in issues])
+        return
+
+    os.environ["DRY_RUN"] = "1" if dry_run else "0"
+    env = os.environ.copy()
+    python_executable = sys.executable
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        script_path = os.path.join(tmpdir, "generated_bot.py")
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        buf: List[str] = []
+        try:
+            with CURRENT_PROCESS_LOCK:
+                global CURRENT_PROCESS
+                if CURRENT_PROCESS is not None:
+                    yield "Another execution is in progress. Please stop it first."
+                    return
+                CURRENT_PROCESS = subprocess.Popen(
+                    [python_executable, script_path],
+                    cwd=CURRENT_DIR,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    env=env,
+                )
+
+            assert CURRENT_PROCESS is not None
+            for line in CURRENT_PROCESS.stdout:  # type: ignore[union-attr]
+                buf.append(line.rstrip("\n"))
+                yield "\n".join(buf)
+
+            ret = CURRENT_PROCESS.wait(timeout=timeout_s)
+            if ret != 0:
+                buf.append(f"[EXIT {ret}]")
+            yield "\n".join(buf) if buf else "(no output)"
+        except subprocess.TimeoutExpired:
+            try:
+                if CURRENT_PROCESS:
+                    CURRENT_PROCESS.kill()
+            finally:
+                with CURRENT_PROCESS_LOCK:
+                    CURRENT_PROCESS = None
+            buf.append(f"Execution timed out after {timeout_s}s")
+            yield "\n".join(buf)
+        finally:
+            with CURRENT_PROCESS_LOCK:
+                CURRENT_PROCESS = None
+
+
 # --- UI Wiring ---
 
 def build_ui() -> gr.Blocks:
@@ -174,11 +288,15 @@ def build_ui() -> gr.Blocks:
                 code_view = gr.Code(label="Generated Python Code", language="python", interactive=True)
                 with gr.Row():
                     dry_toggle = gr.Checkbox(value=True, label="Dry-run (no live trades)")
-                    exec_btn = gr.Button("Execute", variant="primary")
+                    live_confirm = gr.Checkbox(value=False, label="I understand live trades spend real funds")
+                with gr.Row():
+                    exec_btn = gr.Button("Execute (stream)", variant="primary")
+                    stop_btn = gr.Button("Stop", variant="stop")
                 output_box = gr.Textbox(label="Output / Logs", lines=16)
 
         state_history = gr.State([])  # list of (user, assistant)
         state_code = gr.State("")
+        state_running = gr.State(False)
 
         def on_send(user_msg: str, chat_hist: List[Tuple[str, str]]):
             assistant_msg, code = agent_response(user_msg, chat_hist)
@@ -197,10 +315,39 @@ def build_ui() -> gr.Blocks:
             outputs=[chatbot, code_view, state_history, state_code],
         )
 
-        def on_execute(code: str, dry: bool):
-            return execute_code(code, dry_run=dry)
+        def on_execute_stream(code: str, dry: bool, confirm_live: bool):
+            if not code.strip():
+                yield "No code to execute. Generate code first."
+                return
+            if not dry and not confirm_live:
+                yield "Live trades require confirmation. Please check the confirmation box or enable Dry-run."
+                return
+            # Audit here as well for immediate feedback
+            issues = audit_generated_code(code)
+            if issues:
+                yield "\n".join(["Execution blocked due to code audit issues:"] + [f"- {i}" for i in issues])
+                return
+            # Stream execution
+            yield from execute_code_streaming(code, dry_run=dry)
 
-        exec_btn.click(on_execute, inputs=[state_code, dry_toggle], outputs=[output_box])
+        exec_btn.click(
+            on_execute_stream,
+            inputs=[state_code, dry_toggle, live_confirm],
+            outputs=[output_box],
+        )
+
+        def on_stop():
+            with CURRENT_PROCESS_LOCK:
+                global CURRENT_PROCESS
+                if CURRENT_PROCESS is not None:
+                    try:
+                        CURRENT_PROCESS.kill()
+                        return "Execution stopped by user."
+                    finally:
+                        CURRENT_PROCESS = None
+            return "No execution in progress."
+
+        stop_btn.click(on_stop, inputs=None, outputs=[output_box])
 
         def on_clear():
             return [], "", [], ""

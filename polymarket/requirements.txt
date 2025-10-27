@@ -2,3 +2,6 @@ gradio==4.44.0
 requests>=2.31.0
 web3>=6.13.1
 python-dotenv>=1.0.1
+websocket-client>=1.8.0
+pandas>=2.2.2
+torch>=2.4.0; platform_system != "Darwin" or platform_machine != "arm64"
