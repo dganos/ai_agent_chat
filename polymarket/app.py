@@ -200,7 +200,7 @@ def build_ui() -> gr.Blocks:
         def on_execute(code: str, dry: bool):
             return execute_code(code, dry_run=dry)
 
-        exec_btn.click(on_execute, inputs=[state_code, dry_toggle], outputs=[output_box])
+        exec_btn.click(on_execute, inputs=[code_view, dry_toggle], outputs=[output_box])
 
         def on_clear():
             return [], "", [], ""
