@@ -129,7 +129,7 @@ export function CartView({
         <div className="border-t border-gray-200 bg-gray-50/50 p-4 dark:border-gray-700 dark:bg-black/20">
           <div className="flex items-center justify-between mb-4">
             <span className="text-base font-medium text-gray-900 dark:text-white" dir="rtl">
-              סה"כ לתשלום:
+              סה&quot;כ לתשלום:
             </span>
             <span className="text-xl font-bold text-green-600 dark:text-green-400">
               {totalDisplay || (total ? `₪${total.toFixed(2)}` : "---")}
@@ -145,7 +145,7 @@ export function CartView({
           </button>
 
           <p className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400" dir="rtl">
-            * המחירים כוללים מע"מ
+            * המחירים כוללים מע&quot;מ
           </p>
         </div>
       )}

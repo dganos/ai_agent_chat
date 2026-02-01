@@ -273,21 +273,11 @@ function ChatInterface() {
           <div className="h-[70vh] overflow-hidden">
             <CopilotChat
               className="h-full bg-transparent"
-              instructions="You are a grocery shopping assistant for Shufersal Online. Help users find products, add items to cart, and complete their grocery shopping. Always respond in a friendly and helpful manner."
+              instructions="You are a grocery shopping assistant for Shufersal Online. Help users find products, add items to cart, and complete their grocery shopping. Always respond in a friendly and helpful manner. When displaying product search results, format them as a numbered list with name and price."
               labels={{
                 title: "Shufersal Shopping Assistant",
-                initial: "שלום! 👋 אני העוזר החכם לקניות בשופרסל אונליין. אני יכול לעזור לך למצוא מוצרים, להוסיף אותם לסל, ולסיים את הקנייה. במה אוכל לעזור?",
+                initial: "שלום! אני העוזר החכם לקניות בשופרסל אונליין. אני יכול לעזור לך למצוא מוצרים, להוסיף אותם לסל, ולסיים את הקנייה. במה אוכל לעזור?",
                 placeholder: "חפש מוצרים או שאל אותי משהו...",
-              }}
-              makeSystemMessage={(message) => {
-                // Intercept messages to render custom components
-                if (message.role === "assistant" && typeof message.content === "string") {
-                  const content = textRenderer(message.content);
-                  if (content !== message.content) {
-                    return { ...message, content };
-                  }
-                }
-                return message;
               }}
             />
           </div>

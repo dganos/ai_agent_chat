@@ -119,7 +119,7 @@ export function ProductList({ products, query, onAddToCart }: ProductListProps) 
     return (
       <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-800 dark:bg-yellow-900/20">
         <p className="text-center text-yellow-800 dark:text-yellow-200" dir="rtl">
-          לא נמצאו מוצרים{query ? ` עבור "${query}"` : ""}
+          לא נמצאו מוצרים{query ? ` עבור &quot;${query}&quot;` : ""}
         </p>
       </div>
     );
@@ -130,7 +130,7 @@ export function ProductList({ products, query, onAddToCart }: ProductListProps) 
       {query && (
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white" dir="rtl">
-            תוצאות חיפוש: "{query}"
+            תוצאות חיפוש: &quot;{query}&quot;
           </h3>
           <span className="rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
             {products.length} מוצרים

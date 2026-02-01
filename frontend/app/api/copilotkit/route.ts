@@ -18,9 +18,10 @@ export async function POST(req: NextRequest) {
   });
 
   // Initialize the CopilotRuntime with the agent
+  // Using type assertion to handle version mismatch between @ag-ui/client packages
   const runtime = new CopilotRuntime({
     agents: {
-      "grocery-assistant": groceryAssistantAgent,
+      "grocery-assistant": groceryAssistantAgent as any,
     },
   });
 
