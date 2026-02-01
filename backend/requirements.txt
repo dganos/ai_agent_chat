@@ -1,3 +1,5 @@
 agno
 python-dotenv
 yfinance
+playwright
+asyncio

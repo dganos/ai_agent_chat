@@ -13,14 +13,14 @@ export async function POST(req: NextRequest) {
 
   // Create the Agno agent connection using HttpAgent
   // Agno exposes the AG-UI interface at /agui endpoint
-  const investmentAnalystAgent = new HttpAgent({
+  const groceryAssistantAgent = new HttpAgent({
     url: `${AGNO_AGENT_URL}/agui`,
   });
 
   // Initialize the CopilotRuntime with the agent
   const runtime = new CopilotRuntime({
     agents: {
-      "investment-analyst": investmentAnalystAgent,
+      "grocery-assistant": groceryAssistantAgent,
     },
   });
 
